@@ -1,18 +1,11 @@
+import csv
 from bs4 import BeautifulSoup
 import requests
 import re
-from termcolor import colored
-from urllib3 import response
 import time
-import fileinput
+from termcolor import colored
+from gem import job
 
-ids = []
-
-
-def remove_before_substring(string, substring):
-    # Partition the string around the substring
-    _, _, after_substring = string.partition(substring)
-    return after_substring
 
 
 def remove_common_chars(string):
@@ -40,147 +33,95 @@ def remove_common_chars(string):
     string = string.replace("&lt;li&gt;", "")
 
     return string
-
-
-def contains_keyword(keywords, string):
-    # make keywords all lowercase
-    keywords = [keyword.lower() for keyword in keywords]
-    # make string all lowercase
+def remove_before_substring(string, substring):
+    # Partition the string around the substring
+    if substring in string:
+        _, _, after_substring = string.partition(substring)
+        return after_substring
+    return string  # If substring is not found, return the original string
+def contains_experience_keywords(string, experience_keywords):
     string = string.lower()
-    for keyword in keywords:
-        if keyword in string:
-            print(keyword + "found")
+    for keyword in experience_keywords:
+        if keyword.lower() in string:
             return True
-    print("no" + keywords[0] + "found")
     return False
 
-
-def customLogic(Masters, BA, String):
-    if contains_keyword(Masters, String):
-        print("Masters FOUND LOOKING FOR BA")
-        if contains_keyword(BA, String):
-            print("BA FOUND")
-            return True
-        else:
-            print("BA NOT FOUND")
-            return False
-    else:
-        print("Masters NOT FOUND")
-        return True
-
-
-def getLinks(url, num):
-    if (num > 450):
+def get_links(url, num,big_num):
+    delay=1
+    if num > 45000:
         return
-    base_url = "https://www.linkedin.com/jobs/search/?currentJobId=3409431417&f_E=1&f_WT=2&geoId=103644278&keywords=computer%20science%20internship&location=United%20States&refresh=true"
-    print("Number of links to get: " + str(num))
-    if (num != 0):
-        numStr = str(num)
-        url = base_url + "&start=" + (numStr)
-    print("Getting links from: " + url)
+    print(f"Number of links to get: {num}")
+    
+    if num != 0:
+        url += f"&start={num}"
+
+    print(f"Getting links from: {url}")
     page = requests.get(url)
     soup = BeautifulSoup(page.content, 'html.parser')
-    strys = soup.find_all(["a", "b", "data-control-id"])
+    
+    # Find all <a> tags and extract hrefs
     tags = soup.find_all('a')
-    hrefs = [tag.get('href') for tag in tags]
-    for i in hrefs:
-        if i is not None:
-            substring = i[:30]
-            if (substring == "https://www.linkedin.com/jobs/" and i):
-                JobPage = requests.get(i)
+    hrefs = [tag.get('href') for tag in tags if tag.get('href')]
 
-                x = (JobPage.status_code)
-                if (int(x) >= 400):
-                    print(colored("Error", 'red'))
-                    time.sleep(3)
-                    JobPage = requests.get(i)
-                else:
-                    print(colored("Success", 'green'))
+    with open('jobPost.csv', mode='a', newline='') as file:
+        writer = csv.writer(file)
+        
+        # Write CSV header only once
+        if num == 0:
+            writer.writerow(['Link', 'Description'])
 
-                    print("Updated response code: ", x)
-                subSoup = BeautifulSoup(JobPage.content, 'html.parser')
-                subStr = subSoup.find_all('div', {
-                    'class': 'jobs-description__content jobs-description-content jobs-description__content--condensed'})
-                strys = (subSoup.find_all("script"))
+        for link in hrefs:
+            if link.startswith("https://www.linkedin.com/jobs/"):
+                print(f"Processing job link: {link}")
+                job_page = requests.get(link)
 
-                cs_keywords = [
-                    "computer science",
-                    "Algorithms",
-                    "C++",
-                    "Data structures",
-                    "Java",
-                    "Python",
-                    "Software development",
-                    "HTML/CSS",
-                    "JavaScript",
-                    "Mobile app development",
-                    "Scrum",
-                    "SQL",
-                    "Node",
-                    "React",
-                    "Flask",
-                    "HTML",
-                    "CSS",
-                    "Web development",
-                    "Full stack development",
-                    "Software engineering",
-                ]
+                # Retry on failure
+                if job_page.status_code >= 400:
+                    print(colored("Error fetching job page, retrying...", 'red'))
+                    time.sleep(10)
+                    job_page = requests.get(link)
 
-                internship_spellings = ["Internship", "Internship", "internship", "INTERNSHIP", "Internship Program",
-                                        "Internship Opportunity", "Internship Position", "Internship Experience",
-                                        "Intern", "intern", "INTERN", "Intern Program", "Intern Opportunity",
-                                        "Intern Position", "Intern Experience"]
-                graduate_spellings = [
-                    "Master's Degree", "Masters Degree", "Master Degree", "M.A.", "MA", "M.S.", "MS","Masters",
-                    "M.Sc.", "MSc", "M.F.A.", "MFA", "M.B.A.", "MBA", "J.D.", "JD", "M.D.", "MD", "Ph.D.",
-                    "PhD"]
-                undergraduate_spellings = ["Bachelor's Degree", "Bachelors Degree", "Bachelor Degree", "B.A.", "BA",
-                                           "B.S.", "BS"]
+                if job_page.status_code == 200:
+                    print(colored("Successfully fetched job page", 'green'))
+                    sub_soup = BeautifulSoup(job_page.content, 'html.parser')
+                    
+                    # Find job description content
+                    job_description_script = sub_soup.find("script", text=re.compile("description"))
 
-                banned_words = ["Banned", "Bechtel Corporation", "oracle","Sales", "Product", "Marketing", "People Operations", "Finance/Accounting", "eCommerce","xometry","bechtel","Data Science"]
-                # print link into LinkdinSiteCodes.txt
-                isValid = False
-                if (strys):
-                    strins = str(strys)
-                    index = strins.find("description")
-                    strins = strins[index:]
-                    numStr = i.split("?")[0]
-                    numStr = "".join(filter(str.isnumeric, numStr))
-                    # also in the end and a conditon that checks if posting contains masters keyword and if it does check if it contains undergrad keyword and if it does return true
-                    if (strins and contains_keyword(cs_keywords, strins) and contains_keyword(internship_spellings,strins) and numStr not in ids and not contains_keyword(banned_words,strins) and  customLogic(graduate_spellings, undergraduate_spellings, strins) ):
-                        ids.append(numStr[-10:])
-                        print(colored("Contains CS keywords and isnt used", 'blue'))
-                        print(colored(i, 'cyan'))
+                    if job_description_script:
+                        # Extract text from script tag containing job description
+                        job_description = job_description_script.get_text(strip=True)
+                        job_description = remove_common_chars(job_description)
+                        
+                     
+        
+                    if (not job(job_description)):
+                        print(colored(f"Skipping job with experience requirement: {link}", 'yellow'))
+                        with open('fakeJobs.txt', 'a') as file2:
+                            file2.write(link+":"+job_description+"\n")
+                            continue
+                        ...
+                        # Save valid job link and description to CSV file
+                    print(colored(f"Valid job saved: {link}", 'green'))
+                    writer = csv.writer(file)
+                    writer.writerow([link,job_description])
 
-                        isValid = True
-                        with open("LinkdinSiteCodes.txt", "a") as myfile:
-                            myfile.write("\n")
-                            myfile.write(strins)
-                            myfile.close()
+    
+    import random
 
-                        with open("LinkdinSiteLinks.txt", "a") as myfile:
-                            myfile.write("\n")
-                            myfile.write(i)
-                            myfile.close()
+    num += 25
+    delay = random.uniform(0.5, 2.0)  # Random delay between 0.5 and 2 seconds
+    if num < big_num:
+        big_num+=500
+        print(colored("tottaly not suspisous nap, whaaaa whats webscraping","blue"))
 
-                if (isValid):
-                    with open("LinkdinSiteCodes.txt", "a") as myfile:
-                        myfile.write(i)
-                        myfile.close()
-
-    num = num + 25
-    print("Done")
-    print("sleeping for")
-    if (num < 500):
-        print(num * .20)
-        time.sleep(num * .20)
-        getLinks(url, num)
+        time.sleep(num * delay)
+        get_links(url, num,big_num)
     else:
-        print("300 seconds")
-        time.sleep(300)
-        getLinks(url, num)
-
-
-getLinks(
-    "https://www.linkedin.com/jobs/search/?currentJobId=3391751132&f_E=1&f_WT=2&geoId=103644278&keywords=computer%20science&location=United%20States&refresh=true",
-    0)
+        print(colored("tottaly not suspisous nap, whaaaa whats webscraping","purple"))
+        time.sleep(150)  # Longer delay after a large batch
+        get_links(url, num,big_num)
+# Start scraping from the given URL
+get_links(
+"https://www.linkedin.com/jobs/search/?currentJobId=3978890270&distance=25&f_E=2%2C3&geoId=103644278&keywords=entry%20level%20software%20developer&origin=JOB_SEARCH_PAGE_JOB_FILTER&refresh=true",    0,500
+)
